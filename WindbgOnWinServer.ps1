@@ -1,14 +1,24 @@
+  
 #Use default "Downloads" folder if not changed  
 $DownloadLocation = Join-Path -Path "$([System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile))" -ChildPath "Downloads"
 
 #This is where files will be copied if not changed
 $DropLocation = "C:\Tools\Debuggers\Windbg"
 
+#This is where we'll tell Windows to keep cached symbols
+$SymbolPath = "C:\Tools\Debuggers\Symbols"
+
+#Just like https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/microsoft-public-symbols#how-to-access
+[System.Environment]::SetEnvironmentVariable('_NT_SYMBOL_PATH',"srv*$SymbolPath*https://msdl.microsoft.com/download/symbols", 'Machine')
+[System.Environment]::SetEnvironmentVariable('_NT_SYMBOL_PATH',"srv*$SymbolPath*https://msdl.microsoft.com/download/symbols", 'User')
+
 #Create folders if they don't already exist
 
 [System.IO.Directory]::CreateDirectory($DownloadLocation) | Out-Null
 
 [System.IO.Directory]::CreateDirectory($DropLocation) | Out-Null
+
+[System.IO.Directory]::CreateDirectory($SymbolPath) | Out-Null
 
 #Need to set TLS 1.2 or downloads will fail...
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
