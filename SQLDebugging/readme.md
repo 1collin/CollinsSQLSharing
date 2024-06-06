@@ -152,7 +152,7 @@ I’ll then look for the thread which triggered the memory dump. In this case I 
 ```
 Then I’ll switch to the context of that thread.
 
-```Text
+```diff
 0:090> ~35s
 ntdll!NtWaitForSingleObject+0x14:
 00007ffe`f7d45ea4 c3              ret
