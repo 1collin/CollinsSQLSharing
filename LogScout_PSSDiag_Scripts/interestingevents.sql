@@ -21,3 +21,20 @@ SELECT EventID, name, Subclass, SUM([#Occurrences]) [#Occurrences]
 FROM Groupie
 GROUP BY EventID, name, Subclass
 ORDER BY	[#Occurrences] DESC
+
+
+--Filter by HashID
+SELECT te.name
+	, tsv.subclass_name
+	, b.*
+	, ie.TextData
+FROM ReadTrace.tblInterestingEvents ie
+	JOIN ReadTrace.tblBatches b ON ie.Session = b.Session
+		AND ie.ConnId = b.ConnId
+		AND ie.DBID = b.DBID
+		AND ie.EndTime <= b.EndTime
+		AND ie.EndTime > b.StartTime
+		AND ie.StartTime >= b.StartTime
+	JOIN	sys.trace_events te ON te.trace_event_id = ie.EventID 
+	LEFT JOIN	sys.trace_subclass_values tsv ON tsv.trace_event_id = ie.EventID AND tsv.subclass_value = ie.EventSubclass
+WHERE b.HashID = -7185144618805289206
