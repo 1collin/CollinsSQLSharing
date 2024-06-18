@@ -167,6 +167,8 @@ function Import-TableData()
             {
                 Write-Progress -Activity "Table import" -CurrentOperation "Imported table $tablesImported of $tableCount." -PercentComplete ($tablesImported/$tableCount)
             }
+
+            $tablesImported++
         }
         catch 
         {
