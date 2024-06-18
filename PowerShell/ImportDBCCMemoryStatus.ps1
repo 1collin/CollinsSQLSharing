@@ -117,6 +117,7 @@ function Import-TableData()
         elseif($table.TableName -like "MEMORYBROKER_FOR*")
         {
             $NormalizedTableName = "MEMORYBROKER"
+            $normalized = $true
         }
         
         if($normalized)
