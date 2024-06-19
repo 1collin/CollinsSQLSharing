@@ -119,6 +119,16 @@ function Import-TableData()
             $NormalizedTableName = "MEMORYBROKER"
             $normalized = $true
         }
+        elseif($table.TableName -like "* Gateway *")
+        {
+            $NormalizedTableName = "Gateway"
+            $normalized = $true
+        }
+        elseif($table.TableName -like "Memory node Id *")
+        {
+            $NormalizedTableName = "MemoryNode"
+            $normalized = $true
+        }
         
         if($normalized)
         {
@@ -126,23 +136,36 @@ function Import-TableData()
             {
                 $normalizedType = $table.TableName.Replace("MEMORYBROKER_FOR_",'')
             }
+            elseif ($NormalizedTableName -eq "Gateway") 
+            {
+                #Do nothing. The normalized type is space delimited
+            }
             else
             {
                 $normalizedType = $table.TableName.Substring($table.TableName.IndexOf('_')+1)
             }
             
-            $normalizedType = $normalizedType.Substring(0,$normalizedType.IndexOf(' ')).Trim()
+            if($NormalizedTableName -ne "MemoryNode")
+            {
+                $normalizedType = $normalizedType.Substring(0,$normalizedType.IndexOf(' ')).Trim()
 
-            $nodeId = $table.TableName.Substring($table.TableName.IndexOf('(')+1)
+                $nodeId = $table.TableName.Substring($table.TableName.IndexOf('(')+1)
+                
+                $column = New-Object System.Data.DataColumn
+    
+                $column.DataType = [System.Type]::GetType('System.String')
+                $column.MaxLength = 64
+                $column.ColumnName = 'Type'
+                $column.DefaultValue = $normalizedType
+    
+                $table.Columns.Add($column)
+            }
+            else 
+            {
+                $nodeId = $table.TableName.Substring($table.TableName.IndexOf("=")+1)
+                $nodeId = $nodeId.Trim()
+            }
             
-            $column = New-Object System.Data.DataColumn
-
-            $column.DataType = [System.Type]::GetType('System.String')
-            $column.MaxLength = 64
-            $column.ColumnName = 'Type'
-            $column.DefaultValue = $normalizedType
-
-            $table.Columns.Add($column)
 
             if($null -ne $nodeId)
             {
