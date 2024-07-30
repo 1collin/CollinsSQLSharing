@@ -1,9 +1,10 @@
+
 /*
 *   Author: cbenkler
 *   Created: 8/31/2022
 *
-*   Last Modified by: <n/a>
-*   Last Modification: <n/a>
+*   Last Modified by: cbenkler
+*   Last Modification: added database-scoped configurations
 *
 *   Additional Credits:
 *      Gracisas a Mr. Rutzky for the "one-liner" dbg line number idea via https://dba.stackexchange.com/questions/139021/how-to-get-the-current-line-number-from-an-executing-stored-procedure
@@ -130,6 +131,7 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
             DROP TABLE IF EXISTS ##usp_CompareConfigDBs
             DROP TABLE IF EXISTS ##usp_CompareConfigDBList
             DROP TABLE IF EXISTS ##usp_CompareConfigSysDatabasesCols
+			DROP TABLE IF EXISTS ##usp_CompareConfigDBScopedConfigs
             CREATE TABLE ##usp_CompareConfigSrvrs(NexusDB VARCHAR(128), Srv VARCHAR(128), Status INT)
             UPDATE #DBs
             SET ValidityStatus = 2
@@ -297,6 +299,8 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
             --Starting point for DB Comparison
             IF @CompareDBs = 1
             BEGIN
+				DECLARE @DBScopedConfigsQuery NVARCHAR(MAX) = N'';
+
                 SELECT @DynamicQuery = 'CREATE TABLE ##usp_CompareConfigDBs([Database] VARCHAR(128), ' + REPLACE(@ColList, ',', ' VARCHAR(128),')  + ' VARCHAR(128))'
                 IF @dbg = 1
                 BEGIN
@@ -372,6 +376,10 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
                 SET @DynamicQuery = 'INSERT INTO ##usp_CompareConfigDBs([Database], ' + @ColList + ')' + CHAR(13)
                         + 'SELECT ~_PLHDR_CLIST_~'
                         + CHAR(13) + 'FROM ~_PLHDR_SLIST_~'
+
+				SET @DBScopedConfigsQuery = 'INSERT INTO ##usp_CompareConfigDBs([Database], ' + @ColList + ')' + CHAR(13)
+                        + 'SELECT DISTINCT [0].dbname, [0].name, CAST([0].value AS VARCHAR(64))~_PLHDR_CLIST_~'
+                        + CHAR(13) + 'FROM ~_PLHDR_SLIST_~'
                 --Populate the data sources first
                 --Will come back to populate the column list later
                 SET @alias = 0
@@ -380,14 +388,18 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
                     SELECT TOP(1) @CurDB = NexusDB
                     FROM ##usp_CompareConfigSrvrs
                     WHERE Status = 2
-                    ORDER BY NexusDB
+                    ORDER BY Srv, NexusDB
                     --Don't need join on the first iteration
                     IF @alias = 0
                     BEGIN
                        SELECT @DynamicQuery = REPLACE(@DynamicQuery, '~_PLHDR_SLIST_~',     (@CurDB + '.dbo.tbl_SysDatabases ' + '[' + CAST(@alias AS NVARCHAR) + ']' +CHAR(13)+CHAR(9)+'~_PLHDR_SLIST_~'))
+					   SELECT @DBScopedConfigsQuery = REPLACE(@DBScopedConfigsQuery, '~_PLHDR_SLIST_~',     (@CurDB + '.dbo.tbl_database_scoped_configurations ' + '[' + CAST(@alias AS NVARCHAR) + ']' +CHAR(13)+CHAR(9)+'~_PLHDR_SLIST_~'))
                     END
                     ELSE BEGIN
                         SELECT @DynamicQuery = REPLACE(@DynamicQuery, '~_PLHDR_SLIST_~', (@join + @CurDB + '.dbo.tbl_SysDatabases ' + '[' + CAST(@alias AS NVARCHAR) + ']' +CHAR(13)+CHAR(9)+'ON [0].name = [' + CAST(@alias AS NVARCHAR) + '].name' +CHAR(13)+'~_PLHDR_SLIST_~'))
+
+						SELECT @DBScopedConfigsQuery = REPLACE(@DBScopedConfigsQuery, '~_PLHDR_CLIST_~', (', CAST([' + CAST(@alias AS NVARCHAR) + '].value AS VARCHAR(64))~_PLHDR_CLIST_~'))
+						SELECT @DBScopedConfigsQuery = REPLACE(@DBScopedConfigsQuery, '~_PLHDR_SLIST_~', (@join + @CurDB + '.dbo.tbl_database_scoped_configurations ' + '[' + CAST(@alias AS NVARCHAR) + ']' +CHAR(13)+CHAR(9)+'ON [0].name = [' + CAST(@alias AS NVARCHAR) + '].name AND [0].[dbname] = [' + CAST(@alias AS NVARCHAR) + '].dbname' +CHAR(13)+'~_PLHDR_SLIST_~'))
                     END     
                     SET @alias += 1
                     UPDATE ##usp_CompareConfigSrvrs 
@@ -399,6 +411,7 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
                     BEGIN TRY;THROW 50000,'',1;END TRY BEGIN CATCH;SET @ErrorLine= REPLACE(@ErrorLineTmplt, '#', CAST(ERROR_LINE() AS NVARCHAR));END CATCH
                     RAISERROR(@ErrorLine, 10, 1) WITH NOWAIT
                     RAISERROR(@DynamicQuery, 10, 1) WITH NOWAIT
+					RAISERROR(@DBScopedConfigsQuery, 10, 1) WITH NOWAIT
                 END
                 --RETAIN @alias in @aliasSS!!
                 --Will be used to count
@@ -459,7 +472,17 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
                     SET status = 0
                     WHERE status = 1
                 END
-            END
+            
+				--Remove the placeholders
+                SELECT @DBScopedConfigsQuery = REPLACE(REPLACE(@DBScopedConfigsQuery, '~_PLHDR_SLIST_~', ''), '~_PLHDR_CLIST_~', '')
+                IF @dbg = 1
+                BEGIN
+                    BEGIN TRY;THROW 50000,'',1;END TRY BEGIN CATCH;SET @ErrorLine= REPLACE(@ErrorLineTmplt, '#', CAST(ERROR_LINE() AS NVARCHAR));END CATCH
+                    RAISERROR(@ErrorLine, 10, 1) WITH NOWAIT
+                    RAISERROR(@DBScopedConfigsQuery, 10, 1) WITH NOWAIT
+				END
+				EXEC(@DBScopedConfigsQuery)
+			END
             
             GOTO Success
         END
@@ -483,13 +506,13 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
         SET @DynamicQuery = '
             SELECT *
             FROM ##usp_CompareConfigValues
-            WHERE ~_PLHDR_SLIST_~'
+            WHERE ConfigName IS NOT NULL AND (~_PLHDR_SLIST_~)'
         IF @CompareDBs = 1
         BEGIN
             SET @DynamicQuery += CHAR(13)+CHAR(13) 
                 +  'SELECT *
                     FROM ##usp_CompareConfigDBs
-                    WHERE ~_PLHDR_SLIST_~'
+                    WHERE ConfigName IS NOT NULL AND (~_PLHDR_SLIST_~)'
         END
         IF @dbg = 1
         BEGIN
@@ -529,11 +552,11 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
                     
                     IF @FlowBit = 0
                     BEGIN
-                        SELECT @DynamicQuery = REPLACE(@DynamicQuery, '~_PLHDR_SLIST_~', (@InnerCol + ' ~_PLHDR_SLIST_~'))
+                        SELECT @DynamicQuery = REPLACE(@DynamicQuery, '~_PLHDR_SLIST_~', (@InnerCol + ' OR (' + @CurCol + ' IS NULL AND ' + @InnerCol + ' IS NOT NULL) OR (' + @CurCol + ' IS NOT NULL AND ' + @InnerCol + ' IS NULL)  ~_PLHDR_SLIST_~'))
                         SET @FlowBit = 1
                     END 
                     ELSE BEGIN
-                        SELECT @DynamicQuery = REPLACE(@DynamicQuery, '~_PLHDR_SLIST_~', ('OR ' + @CurCol + ' <> ' + @InnerCol + ' ~_PLHDR_SLIST_~'))
+                        SELECT @DynamicQuery = REPLACE(@DynamicQuery, '~_PLHDR_SLIST_~', ('OR ' + @CurCol + ' <> ' + @InnerCol + ' OR (' + @CurCol + ' IS NULL AND ' + @InnerCol + ' IS NOT NULL) OR (' + @CurCol + ' IS NOT NULL AND ' + @InnerCol + ' IS NULL)  ~_PLHDR_SLIST_~'))
                     END
                 END
             END
@@ -549,4 +572,3 @@ CREATE OR ALTER PROCEDURE usp_CompareConfig
         RETURN
     END
 END
-EXEC usp_CompareConfig @CompareList = N'[SQLNexus1], [SQLNexus2], [SQLNexus3]', @FilterLevel = 1, @CompareDBs  = 1
